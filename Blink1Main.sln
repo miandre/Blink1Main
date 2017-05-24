@@ -7,6 +7,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Blink1Main", "Blink1Main.vc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FONAtest", "..\libraries\Adafruit_FONA\examples\FONAtest\FONAtest.vcxproj", "{61C51692-50CF-49C0-88E9-541FC7AA2757}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NaNoSiM", "..\NaNoSiM\NaNoSiM.vcxproj", "{F58BEB2F-43E4-4145-8414-78822986AEAA}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Blink", "H:\Program Files (x86)\Arduino\examples\01.Basics\Blink\Blink.vcxproj", "{2A565671-4642-48AF-B80E-3E3267874F1A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -21,6 +25,14 @@ Global
 		{61C51692-50CF-49C0-88E9-541FC7AA2757}.Debug|x86.Build.0 = Debug|Win32
 		{61C51692-50CF-49C0-88E9-541FC7AA2757}.Release|x86.ActiveCfg = Release|Win32
 		{61C51692-50CF-49C0-88E9-541FC7AA2757}.Release|x86.Build.0 = Release|Win32
+		{F58BEB2F-43E4-4145-8414-78822986AEAA}.Debug|x86.ActiveCfg = Debug|Win32
+		{F58BEB2F-43E4-4145-8414-78822986AEAA}.Debug|x86.Build.0 = Debug|Win32
+		{F58BEB2F-43E4-4145-8414-78822986AEAA}.Release|x86.ActiveCfg = Release|Win32
+		{F58BEB2F-43E4-4145-8414-78822986AEAA}.Release|x86.Build.0 = Release|Win32
+		{2A565671-4642-48AF-B80E-3E3267874F1A}.Debug|x86.ActiveCfg = Debug|Win32
+		{2A565671-4642-48AF-B80E-3E3267874F1A}.Debug|x86.Build.0 = Debug|Win32
+		{2A565671-4642-48AF-B80E-3E3267874F1A}.Release|x86.ActiveCfg = Release|Win32
+		{2A565671-4642-48AF-B80E-3E3267874F1A}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

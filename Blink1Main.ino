@@ -1,27 +1,30 @@
-/*
-
-*/
+#include "HeaderFiles/IOFunctions.h"
 
 #include <Adafruit_FONA.h>
 #include <SoftwareSerial.h>
 
+#define ID 4
+#define APN "halebop.telia.se"
+
 #define BLUE "BLUE"
 #define RED "RED"
+#define NO_TEAM "BLACK"
+#define CAPTURE_TIMEOUT 10
+#define CONFIRM_TIMEOUT 10
 #define RED_BUTTON_PIN 2
 #define BLUE_BUTTON_PIN 3
-#define RED_LED_PIN 8
-#define BLUE_LED_PIN 12
+#define RED_LED_PIN 9
+#define BLUE_LED_PIN 10
 #define STATUS_CAPTURING 1
 #define STATUS_HOLDING 2
 #define FONA_RX 4
 #define FONA_TX 5
 #define FONA_RST 6
+#define STATUS_LED_1 19
+#define STATUS_LED_2 16
+#define STATUS_LED_3 13
 
-
-SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
-SoftwareSerial *fonaSerial = &fonaSS;
-// Use this for FONA 800 and 808s
-Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
+boolean sendData();
 
 enum State {
 	NEUTRAL,
@@ -33,25 +36,143 @@ enum State {
 	RED_HAS_BASE
 };
 
-volatile State state;
+// this is a large buffer for replies
 char replybuffer[255];
+
+SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
+SoftwareSerial *fonaSerial = &fonaSS;
+
+Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
+
+uint8_t readline(char *buff, uint8_t maxbuff, uint16_t timeout = 0);
+
+volatile State state;
+boolean statusHasChanged = false;
 char PIN[5] = "1234";
-String URL_BASE = "http://www.geeks.terminalprospect.com/AIR/UpdateStatus.php?";
+String URL_BASE = "http://www.geeks.terminalprospect.com/AIR/";
+long timer = 0;
 
 
 void setup() {
+
 	pinMode(RED_BUTTON_PIN, INPUT_PULLUP);
 	pinMode(BLUE_BUTTON_PIN, INPUT_PULLUP);
 	pinMode(BLUE_LED_PIN, OUTPUT);
 	pinMode(RED_LED_PIN, OUTPUT);
-	attachInterrupt(digitalPinToInterrupt(BLUE_BUTTON_PIN), blueButtonISR, CHANGE);
-	attachInterrupt(digitalPinToInterrupt(RED_BUTTON_PIN), redButtonISR, CHANGE);
 	pinMode(LED_BUILTIN, OUTPUT);
-	while (!Serial);
+	pinMode(PIN_A2, OUTPUT);
+	pinMode(PIN_A5, OUTPUT);
+	attachInterrupt(digitalPinToInterrupt(BLUE_BUTTON_PIN), blueButtonISR, FALLING);
+	attachInterrupt(digitalPinToInterrupt(RED_BUTTON_PIN), redButtonISR, FALLING);
+
+	//Use with USB serial connection only
+	//while (!Serial);  
 
 	Serial.begin(115200);
-	Serial.println(F("FONA basic test"));
 	Serial.println(F("Initializing....(May take 3 seconds)"));
+
+	initFONA();
+}
+
+
+
+void loop() {
+
+	if (++timer >= 4000000 && !statusHasChanged) {
+		captureBlink(LED_BUILTIN);
+		setAlive();
+		timer = 0;
+	}
+
+	int16_t capturingCountdown = 10;
+	int16_t confirmTimeout = 40;
+
+	switch (state) {
+	case  NEUTRAL:
+		if (statusHasChanged) { setStatus(NO_TEAM, STATUS_HOLDING); }
+		digitalWrite(RED_LED_PIN, LOW);
+		digitalWrite(BLUE_LED_PIN, LOW);
+		break;
+
+	case BLUE_CAPTURING:
+		digitalWrite(RED_LED_PIN, LOW);
+		digitalWrite(BLUE_LED_PIN, HIGH);
+		if (statusHasChanged) { setStatus(BLUE, STATUS_CAPTURING); }
+		while (capturingCountdown > 0 && state == BLUE_CAPTURING) {
+			capturePulse(BLUE_LED_PIN);
+			capturingCountdown--;
+		}
+		if (!statusHasChanged) {
+			state = BLUE_AWAITING_CONNFIRM;
+		}
+		break;
+
+	case BLUE_AWAITING_CONNFIRM:
+		digitalWrite(RED_LED_PIN, LOW);
+		while (confirmTimeout > 0 && state == BLUE_AWAITING_CONNFIRM) {
+			confirmBlink(BLUE_LED_PIN);
+			confirmTimeout--;
+		}
+		if (state == BLUE_AWAITING_CONNFIRM) {
+			state = NEUTRAL;
+			statusHasChanged = true;
+		}
+		break;
+		
+	case BLUE_HAS_BASE:
+		digitalWrite(RED_LED_PIN, LOW);
+		digitalWrite(BLUE_LED_PIN, HIGH);
+		if (statusHasChanged) { setStatus(BLUE, STATUS_HOLDING); }
+		break;
+
+	case RED_CAPTURING:
+		digitalWrite(BLUE_LED_PIN, LOW);
+		digitalWrite(RED_LED_PIN, HIGH);
+		if (statusHasChanged) { setStatus(RED, STATUS_CAPTURING); }
+		while (capturingCountdown > 0 && state == RED_CAPTURING) {
+			capturePulse(RED_LED_PIN);
+			capturingCountdown--;
+		}
+		if (!statusHasChanged) {
+			state = RED_AWAITING_CONNFIRM;
+		}
+		break;
+
+	case RED_AWAITING_CONNFIRM:
+		digitalWrite(RED_LED_PIN, LOW);
+		while (confirmTimeout > 0 && state == RED_AWAITING_CONNFIRM) {
+			confirmBlink(RED_LED_PIN);
+			confirmTimeout--;
+		}
+		if (state == RED_AWAITING_CONNFIRM) {
+			state = NEUTRAL;
+			statusHasChanged = true;
+		}
+		break;
+
+	case RED_HAS_BASE:
+		digitalWrite(BLUE_LED_PIN, LOW);
+		digitalWrite(RED_LED_PIN, HIGH);
+		if (statusHasChanged) { setStatus(RED, STATUS_HOLDING); }
+		break;
+	}
+}
+
+
+
+void flushFONA() {
+	flushSerial();
+	while (fona.available()) {
+		Serial.write(fona.read());
+	}
+
+}
+
+void initFONA() {
+	
+	digitalWrite(STATUS_LED_1, LOW);
+	digitalWrite(STATUS_LED_2, LOW);
+	digitalWrite(STATUS_LED_3, LOW);
 
 	fonaSerial->begin(4800);
 	if (!fona.begin(*fonaSerial)) {
@@ -59,178 +180,189 @@ void setup() {
 		while (1);
 	}
 
-	Serial.println(F("FONA is OK"));
+	// Optionally configure a GPRS APN, username, and password.
+	fona.setGPRSNetworkSettings(F(APN));
 
-	fona.setGPRSNetworkSettings(F("online.telia.se"));
-
-
-	if (isSIMLocked()) {
-		if (!fona.unlockSIM(PIN)) {
-			Serial.println(F("PIN FAIL"));
-		}
-		else {
-			Serial.println(F("PIN OK!"));
-		}
+	captureBlink(STATUS_LED_1);
+	flushFONA();
+	while (!fona.unlockSIM(PIN)) {
+		captureBlink(STATUS_LED_1);
+		delay(500);
 	}
-	else {
-		Serial.println("Already Unlocked");
-	}
-	delay(5000);
+
+	flushFONA();
+	digitalWrite(STATUS_LED_1, HIGH);
+
+	delay(2000);
+	uint8_t counter = 0;
+	captureBlink(STATUS_LED_2);
 	while (fona.getNetworkStatus() != 1) {
-		delay(3000);
+		captureBlink(RED_LED_PIN);
+		fona.flush();
+		delay(1500);
+		counter++;
+		if (counter == 5) {
+			counter = 0;
+		}
 	}
 
-	if (fona.GPRSstate() != 1) {
-		fona.enableGPRS(false);
-		delay(300);
+	flushFONA();
+	digitalWrite(STATUS_LED_2, HIGH);
+	delay(100);
+	captureBlink(STATUS_LED_3);
+	while (!fona.enableGPRS(true)) {
+		captureBlink(STATUS_LED_3);
+		delay(500);
 	}
-	if (!fona.enableGPRS(true)) {
-		Serial.println(F("Failed to turn on"));
-	}
-
-	state = NEUTRAL;
+	flushFONA();
+	digitalWrite(STATUS_LED_3, HIGH);
 }
 
-void loop() {
-	
-	setStatus("BLACK", 2);
-	while (state == NEUTRAL) {
-		digitalWrite(RED_LED_PIN, LOW);
-		digitalWrite(BLUE_LED_PIN, LOW);
-	}
 
-	while (state == BLUE_CAPTURING) {
-		digitalWrite(RED_LED_PIN, LOW);
-		int16_t capturingCountdown = 5;
-		while (capturingCountdown > 0 && state == BLUE_CAPTURING) {
-			digitalWrite(BLUE_LED_PIN, HIGH);
-			delay(200);
-			digitalWrite(BLUE_LED_PIN, LOW);
-			delay(400);
-			capturingCountdown--;
-		}
-		state = BLUE_AWAITING_CONNFIRM;
-	}
-
-	while (state == BLUE_AWAITING_CONNFIRM) {
-		digitalWrite(RED_LED_PIN, LOW);
-		int16_t confirmTimeout = 20;
-
-		while (confirmTimeout > 0 && state == BLUE_AWAITING_CONNFIRM) {
-			digitalWrite(BLUE_LED_PIN, HIGH);
-			delay(100);
-			digitalWrite(BLUE_LED_PIN, LOW);
-			delay(100);
-			confirmTimeout--;
-		}
-		if (state == BLUE_AWAITING_CONNFIRM) {
-			state = NEUTRAL;
-		}
-	}
-
-	while (state == BLUE_HAS_BASE) {
-		digitalWrite(RED_LED_PIN, LOW);
-		digitalWrite(BLUE_LED_PIN, HIGH);
-	}
-
-	while (state == RED_CAPTURING) {
-		digitalWrite(BLUE_LED_PIN, LOW);
-		int16_t capturingCountdown = 5;
-		while (capturingCountdown > 0 && state == RED_CAPTURING) {
-			digitalWrite(RED_LED_PIN, HIGH);
-			delay(200);
-			digitalWrite(RED_LED_PIN, LOW);
-			delay(400);
-			capturingCountdown--;
-		}
-		state = RED_AWAITING_CONNFIRM;
-	}
-
-	while (state == RED_AWAITING_CONNFIRM) {
-		digitalWrite(RED_LED_PIN, LOW);
-		int16_t confirmTimeout = 20;
-
-		while (confirmTimeout > 0 && state == RED_AWAITING_CONNFIRM) {
-			digitalWrite(RED_LED_PIN, HIGH);
-			delay(100);
-			digitalWrite(RED_LED_PIN, LOW);
-			delay(100);
-			confirmTimeout--;
-		}
-		if (state == RED_AWAITING_CONNFIRM) {
-			state = NEUTRAL;
-		}
-	}
-
-	while (state == RED_HAS_BASE) {
-		digitalWrite(BLUE_LED_PIN, LOW);
-		digitalWrite(RED_LED_PIN, HIGH);
-	}
-}
-
-void flushSerial() {
-	while (Serial.available())
-		Serial.read();
-}
-
-boolean isSIMLocked() {
-
-	String response;
-	sendATCommand("AT+CPIN?");
-	int i = 0;
-	while (i < 255) {
-		if (fona.available()) {
-			response.concat((char)fona.read());
-		}
-		i++;
-	}
-	if (response.indexOf("READY") == -1) {
-		return true;
-	}
-	else {
-		return false;
-	}
-}
 
 void setStatus(String team, uint8_t status) {
+	if (fona.GPRSstate()) {
+		Serial.println(F("GPRS OK"));
+	}
+	uint8_t counter = 0;
+	while (!sendData(team, status)) {
+		captureBlink(LED_BUILTIN);
+		initFONA();
+		delay(3000);
+		counter++;
+		if (counter == 5) {
+			counter = 0;
+		}
+	}
+	digitalWrite(LED_BUILTIN, HIGH);
+
+}
+
+void setAlive() {
+	if (fona.GPRSstate()) {
+		Serial.println(F("GPRS OK"));
+	}
+	uint8_t counter = 0;
+	while (!sendData()) {
+		captureBlink(LED_BUILTIN);
+		initFONA();
+		delay(3000);
+		counter++;
+		if (counter == 5) {
+			counter = 0;
+		}
+	}
+	digitalWrite(LED_BUILTIN, HIGH);
+}
+
+
+
+boolean sendData(String team, uint8_t status) {
 	uint16_t statuscode;
 	int16_t length;
-	String completeUrl = URL_BASE + "ID=" + 1 + "&TEAM=" + team + "&STATUS=" + status;
+
+	String completeUrl = URL_BASE + "UpdateStatus.php?ID=" + ID + "&TEAM=" + team + "&STATUS=" + status;
 	char urlToSend[90]; completeUrl.toCharArray(urlToSend, 90);
+	delay(100);
+
 
 	if (!fona.HTTP_GET_start(urlToSend, &statuscode, (uint16_t *)&length)) {
-		Serial.println("Failed!");
+		Serial.println("Failed! sendding");
+		return false;
 	}
-	else {
-		Serial.println(F("Status Updated!"));
-		fona.HTTP_GET_end();
+	while (length > 0) {
+		while (fona.available()) {
+			char c = fona.read();
+
+			// Serial.write is too slow, we'll write directly to Serial register!
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
+			loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
+			UDR0 = c;
+#else
+			Serial.write(c);
+#endif
+			length--;
+			if (!length) break;
+		}
 	}
+	Serial.println(F("\n****"));
+	fona.HTTP_GET_end();
+
+	statusHasChanged = false;
+	return true;
+
 }
+
+boolean sendData() {
+	uint16_t statuscode;
+	int16_t length;
+
+	String completeUrl =  URL_BASE + "watchDog.php?ID=" + ID;
+	char urlToSend[90]; completeUrl.toCharArray(urlToSend, 90);
+	delay(100);
+
+
+	if (!fona.HTTP_GET_start(urlToSend, &statuscode, (uint16_t *)&length)) {
+		Serial.println("Failed! sendding");
+		return false;
+	}
+	while (length > 0) {
+		while (fona.available()) {
+			char c = fona.read();
+
+			// Serial.write is too slow, we'll write directly to Serial register!
+#if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
+			loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
+			UDR0 = c;
+#else
+			Serial.write(c);
+#endif
+			length--;
+			if (!length) break;
+		}
+	}
+	Serial.println(F("\n****"));
+	fona.HTTP_GET_end();
+
+	statusHasChanged = false;
+	return true;
+
+}
+
+/*****************************/
+/*************ISR************/
+/****************************/
 
 void blueButtonISR() {
 
 	switch (state) {
 	case NEUTRAL:
 		state = BLUE_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case BLUE_CAPTURING:
 		break;
 	case BLUE_AWAITING_CONNFIRM:
 		state = BLUE_HAS_BASE;
+		statusHasChanged = true;
 		break;
 	case BLUE_HAS_BASE:
 		break;
 	case RED_CAPTURING:
 		state = BLUE_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case RED_AWAITING_CONNFIRM:
 		state = BLUE_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case RED_HAS_BASE:
 		state = BLUE_CAPTURING;
+		statusHasChanged = true;
 		break;
 	default:
 		state = NEUTRAL;
+		statusHasChanged = true;
 	}
 }
 
@@ -239,56 +371,30 @@ void redButtonISR() {
 	switch (state) {
 	case NEUTRAL:
 		state = RED_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case BLUE_CAPTURING:
 		state = RED_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case BLUE_AWAITING_CONNFIRM:
 		state = RED_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case BLUE_HAS_BASE:
 		state = RED_CAPTURING;
+		statusHasChanged = true;
 		break;
 	case RED_CAPTURING:
 		break;
 	case RED_AWAITING_CONNFIRM:
 		state = RED_HAS_BASE;
+		statusHasChanged = true;
 		break;
 	case RED_HAS_BASE:
 		break;
 	default:
 		state = NEUTRAL;
+		statusHasChanged = true;
 	}
-}
-
-
-
-String sendATCommand(char Command[]) { //Send an AT command and wait for a response 
-	int complete = 0; // have we collected the whole response? 
-	int ATtimeOut = 10000;
-	String response;
-	char c; //capture serial stream 
-	String content; //place to save serial stream 
-	unsigned long commandClock = millis(); //timeout Clock 
-	fonaSS.println(Command); //Print Command 
-	while (!complete && commandClock <= millis() + ATtimeOut) { //wait until the command is complete 
-		while (!fonaSS.available() && commandClock <= millis() + ATtimeOut); //wait until the Serial Port is opened 
-		while (fonaSS.available()) { //Collect the response 
-			c = fonaSS.read(); //capture it
-			if (c == 0x0A || c == 0x0D); //disregard all new lines and carrige returns (makes the String matching eaiser to do) 
-			else content.concat(c); //concatonate the stream into a String 
-		}
-		//Serial.println(content); //Debug 
-		response = content; //Save it out to a global Variable (How do you return a String from a Function?) 
-		complete = 1;  //Lable as Done. 
-	}
-	if (complete == 1)
-		return response; //Is it done? return a 1 
-	else
-		return "NULL"; //otherwise don't (this will trigger if the command times out)  
-					   /*
-					   226     Note: This function may not work perfectly...but it works pretty well. I'm not totally sure how well the timeout function works. It'll be worth testing.
-					   227     Another bug is that if you send a command that returns with two responses, an OK, and then something else, it will ignore the something else and just say DONE as soon as the first response happens.
-					   228     For example, HTTPACTION=0, returns with an OK when it's intiialized, then a second response when the action is complete. OR HTTPREAD does the same. That is poorly handled here, hence all the delays up above.
-					   229   */
 }
