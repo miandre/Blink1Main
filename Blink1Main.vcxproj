@@ -47,10 +47,10 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\Users\Micke\Documents\Arduino\libraries\Adafruit_FONA;h:\Program Files (x86)\Arduino\hardware\arduino\avr\libraries\SoftwareSerial\src;C:\Users\Micke\Documents\Arduino\libraries\Adafruit_FONA\utility;h:\Program Files (x86)\Arduino\hardware\arduino\avr\libraries\SoftwareSerial\src\utility;h:\Program Files (x86)\Arduino\libraries;h:\Program Files (x86)\Arduino\hardware\arduino\avr\libraries;C:\Users\Micke\Documents\Arduino\libraries;h:\Program Files (x86)\Arduino\hardware\arduino\avr\cores\arduino;h:\Program Files (x86)\Arduino\hardware\arduino\avr\variants\eightanaloginputs;C:\Users\Micke\Documents\Arduino\Blink1Main;h:\Program Files (x86)\Arduino\hardware\tools\avr\avr\include\;h:\Program Files (x86)\Arduino\hardware\tools\avr\avr\include\avr\;h:\Program Files (x86)\Arduino\hardware\tools\avr\lib\gcc\avr\4.9.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <ForcedIncludeFiles>C:\Users\Micke\Documents\Arduino\Blink1Main\__vm\.Blink1Main.vsarduino.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\Blink1Main;$(ProjectDir)..\..\libraries\Adafruit_FONA;$(ProjectDir)..\..\hardware\arduino\avr\libraries\SoftwareSerial\src;$(ProjectDir)..\..\libraries;C:\Users\Micke\Documents\Arduino\libraries;$(ProjectDir)..\..\hardware\arduino\avr\libraries;$(ProjectDir)..\..\hardware\arduino\avr\cores\arduino;$(ProjectDir)..\..\hardware\arduino\avr\variants\eightanaloginputs;$(ProjectDir)..\..\hardware\tools\avr\avr\include\;$(ProjectDir)..\..\hardware\tools\avr\avr\include\avr\;$(ProjectDir)..\..\hardware\tools\avr\lib\gcc\avr\4.8.1\include;$(ProjectDir)..\..\hardware\tools\avr\lib\gcc\avr\4.9.2\include;$(ProjectDir)..\..\hardware\tools\avr\lib\gcc\avr\4.9.3\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>$(ProjectDir)__vm\.Blink1Main.vsarduino.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <IgnoreStandardIncludePath>false</IgnoreStandardIncludePath>
-      <PreprocessorDefinitions>__AVR_ATmega328p__;__AVR_ATmega328P__;_VMDEBUG=1;F_CPU=16000000L;ARDUINO=106013;ARDUINO_AVR_NANO;ARDUINO_ARCH_AVR;__cplusplus=201103L;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>__AVR_ATmega328p__;__AVR_ATmega328P__;_VMDEBUG=1;F_CPU=16000000L;ARDUINO=10805;ARDUINO_AVR_NANO;ARDUINO_ARCH_AVR;__cplusplus=201103L;_VMICRO_INTELLISENSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -77,6 +77,7 @@
     <None Include="Blink1Main.ino">
       <FileType>CppCode</FileType>
     </None>
+    <None Include="Blink1Main_RESET.ino" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HeaderFiles\IOFunctions.h" />
@@ -93,7 +94,7 @@
   </ImportGroup>
   <ProjectExtensions>
     <VisualStudio>
-      <UserProperties arduino.upload.port="COM7" />
+      <UserProperties arduino.upload.port="COM6" />
     </VisualStudio>
   </ProjectExtensions>
 </Project>
