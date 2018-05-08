@@ -3,7 +3,7 @@
 #include <Adafruit_FONA.h>
 #include <SoftwareSerial.h>
 
-#define ID 3
+#define ID 1
 #define APN "halebop.telia.se"
 
 #define BLUE "BLUE"
@@ -25,12 +25,14 @@
 #define STATUS_LED_3 13
 
 void initFONA();
-void trySendData(const String&);
+void trySendData(const String&, uint8_t, boolean);
 void setStatus(const String&, uint8_t);
 void setAlive();
 void reInitGPRS();
 void blueButtonISR();
 void redButtonISR();
+void checkResetState();
+void reportStatusToWartchdog();
 boolean sendData(const String&);
 
 enum State {
@@ -55,12 +57,13 @@ uint8_t readline(char *buff, uint8_t maxbuff, uint16_t timeout = 0);
 
 volatile State state;
 boolean statusHasChanged = false;
-volatile boolean buttonActive;
+volatile boolean resetState = false;
+boolean resetReported = true;
 char PIN[5] = "1234";
 const String URL_BASE = "http://www.geeks.terminalprospect.com/AIR/";
 long timer = 0;
-uint8_t buttonState;
-uint8_t lastButtonState;
+long loopTimer = 0;
+
 
 
 void setup() {
@@ -73,35 +76,37 @@ void setup() {
 	pinMode(PIN_A2, OUTPUT);
 	pinMode(PIN_A5, OUTPUT);
 	attachInterrupt(digitalPinToInterrupt(BLUE_BUTTON_PIN), blueButtonISR, RISING);
-	attachInterrupt(digitalPinToInterrupt(RED_BUTTON_PIN), redButtonISR, FALLING);
+	attachInterrupt(digitalPinToInterrupt(RED_BUTTON_PIN), redButtonISR, RISING);
 
 	//Use with USB serial connection only
 	while (!Serial);
 
 	Serial.begin(115200);
 	Serial.println(F("Initializing....(May take 3 seconds)"));
-	buttonActive = true;
 	initFONA();
+	loopTimer = millis();
 }
 
 
 
 void loop() {
-	Serial.flush();
-	if (++timer >= 4000000 && !statusHasChanged) {
-		captureBlink(LED_BUILTIN);
-		setAlive();
-		timer = 0;
+	timer += millis() - loopTimer;
+	loopTimer = millis();
+
+	if (timer >= 60000 && !statusHasChanged) {
+		reportStatusToWartchdog();
 	}
 
-	int16_t capturingCountdown = 10;
+	int16_t capturingCountdown = 20;
 	//int16_t capturingCountdown = 550;
 	int16_t confirmTimeout = 120;
+	checkResetState();
 
 	switch (state) {
 	case  NEUTRAL:
-		buttonActive = true;
-		if (statusHasChanged) { setStatus(NO_TEAM, STATUS_HOLDING); }
+		if (statusHasChanged) {
+			setStatus(NO_TEAM, STATUS_HOLDING);
+		}
 		digitalWrite(RED_LED_PIN, LOW);
 		digitalWrite(BLUE_LED_PIN, LOW);
 		break;
@@ -113,6 +118,11 @@ void loop() {
 		while (capturingCountdown > 0 && state == BLUE_CAPTURING) {
 			capturePulse(BLUE_LED_PIN);
 			capturingCountdown--;
+			if (capturingCountdown % 10 == 0) {
+				digitalWrite(BLUE_LED_PIN, HIGH);
+				setAlive();
+				capturingCountdown--;
+			}
 		}
 		if (!statusHasChanged) {
 			state = BLUE_AWAITING_CONNFIRM;
@@ -144,6 +154,11 @@ void loop() {
 		while (capturingCountdown > 0 && state == RED_CAPTURING) {
 			capturePulse(RED_LED_PIN);
 			capturingCountdown--;
+			if (capturingCountdown % 15 == 0) {
+				digitalWrite(RED_LED_PIN, HIGH);
+				setAlive();
+				capturingCountdown--;
+			}
 		}
 		if (!statusHasChanged) {
 			state = RED_AWAITING_CONNFIRM;
@@ -170,7 +185,28 @@ void loop() {
 	}
 }
 
+void checkResetState() {
+	if (resetState) {
+		state = NEUTRAL;
+		delay(20);
+		resetReported = false;
+		resetState = false;
+	}
+}
 
+void reportStatusToWartchdog() {
+	checkResetState();
+	captureBlink(LED_BUILTIN);
+	if (state == NEUTRAL && !resetReported) {
+		setStatus(NO_TEAM, STATUS_HOLDING);
+		resetReported = true;
+	}
+	else {
+		setAlive();
+	}
+	timer = 0;
+	loopTimer = millis();
+}
 
 void flushFONA() {
 	flushSerial();
@@ -188,7 +224,6 @@ void initFONA() {
 
 	fonaSerial->begin(4800);
 	if (!fona.begin(*fonaSerial)) {
-		//Serial.println(F("Couldn't find FONA"));
 		while (true);
 	}
 
@@ -196,7 +231,7 @@ void initFONA() {
 	fona.setGPRSNetworkSettings(F(APN));
 
 	captureBlink(STATUS_LED_1);
-	
+
 	flushFONA();
 	while (!fona.unlockSIM(PIN)) {
 		captureBlink(STATUS_LED_1);
@@ -231,8 +266,6 @@ void initFONA() {
 	}
 	flushFONA();
 	digitalWrite(STATUS_LED_3, HIGH);
-
-	//buttonActive = true;
 }
 
 void reInitGPRS() {
@@ -244,34 +277,34 @@ void reInitGPRS() {
 
 void setStatus(const String& team, uint8_t status) {
 	const String url = URL_BASE + "UpdateStatus.php?ID=" + ID + "&TEAM=" + team + "&STATUS=" + status;
-	trySendData(url);
-	Serial.println("loop ");
-	replybuffer[10] = 'F';
-	for (int j = 0; j < 11; j++) {
-		Serial.println(replybuffer[j]);
-	}
+	trySendData(url, 5, true);
+	//Serial.println("loop ");
+	//replybuffer[10] = 'F';
+	//for (int j = 0; j < 11; j++) {
+	//	Serial.println(replybuffer[j]);
+	//}
 }
 
 void setAlive() {
 	const String url = URL_BASE + "watchDog.php?ID=" + ID;
-	trySendData(url);
+	trySendData(url, 2, false);
 }
 
-void trySendData(const String& url) {
-	//buttonActive = true;
+void trySendData(const String& url, uint8_t numberOfRetries, boolean tryToReboot) {
 	fona.enableGPRS(true);
 	delay(200);
 
-	uint8_t reInitCounter = 5;
+	uint8_t reInitCounter = numberOfRetries;
 
 	while (!sendData(url)) {
 		captureBlink(LED_BUILTIN);
 		reInitGPRS();
-		if (--reInitCounter == 0) {
+		if (--reInitCounter == 0 && tryToReboot) {
 			initFONA();
 			delay(1000);
 			reInitCounter = 5;
 		}
+		else { break; }
 	}
 
 	digitalWrite(LED_BUILTIN, HIGH);
@@ -326,100 +359,93 @@ boolean sendData(const String& url) {
 /****************************/
 
 void blueButtonISR() {
-	static unsigned long last_interrupt_time = 0;
-	unsigned long interrupt_time = millis();
+	static unsigned long lastInterruptTimeBlue = 0;
+	unsigned long interruptTimeBlue = millis();
 
-	if (interrupt_time - last_interrupt_time > 300) {
-		digitalWrite(BLUE_LED_PIN, HIGH);
+	if (interruptTimeBlue - lastInterruptTimeBlue > 200) {
 		digitalWrite(RED_LED_PIN, LOW);
-		//Serial.print("#");
-
-
-
-		int i = 0;
-		while (digitalRead(BLUE_BUTTON_PIN) == HIGH) {
-			if (++i > 35000) {
-				loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
-				UDR0 = '#';
-				//Serial.print("*");
-				confirmBlink(RED_LED_PIN);
-				confirmBlink(RED_LED_PIN);
-				confirmBlink(RED_LED_PIN);
-				digitalWrite(BLUE_LED_PIN, LOW);
-				state = NEUTRAL;
-				statusHasChanged = true;
-
-				last_interrupt_time = interrupt_time;
-				//break;
-			}
-			else {
-				//buttonActive = true;
-				switch (state) {
-				case NEUTRAL:
-					state = BLUE_CAPTURING;
-					statusHasChanged = true;
-					break;
-				case BLUE_CAPTURING:
-					break;
-				case BLUE_AWAITING_CONNFIRM:
-					state = BLUE_HAS_BASE;
-					statusHasChanged = true;
-					break;
-				case BLUE_HAS_BASE:
-					break;
-				case RED_CAPTURING:
-					state = BLUE_CAPTURING;
-					statusHasChanged = true;
-					break;
-				case RED_AWAITING_CONNFIRM:
-					state = BLUE_CAPTURING;
-					statusHasChanged = true;
-					break;
-				case RED_HAS_BASE:
-					state = BLUE_CAPTURING;
-					statusHasChanged = true;
-					break;
-				default:
-					state = NEUTRAL;
-					statusHasChanged = true;
-				}
-			}
+		switch (state) {
+		case NEUTRAL:
+			digitalWrite(BLUE_LED_PIN, HIGH);
+			state = BLUE_CAPTURING;
+			statusHasChanged = true;
+			break;
+		case BLUE_CAPTURING:
+			break;
+		case BLUE_AWAITING_CONNFIRM:
+			digitalWrite(BLUE_LED_PIN, HIGH);
+			state = BLUE_HAS_BASE;
+			statusHasChanged = true;
+			break;
+		case BLUE_HAS_BASE:
+			break;
+		case RED_CAPTURING:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		case RED_AWAITING_CONNFIRM:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		case RED_HAS_BASE:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		default:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
 		}
-		i = 0;
 	}
-	last_interrupt_time = interrupt_time;
+	lastInterruptTimeBlue = interruptTimeBlue;
+	resetState ? statusHasChanged = false : statusHasChanged = statusHasChanged;
 }
 
 void redButtonISR() {
-	digitalWrite(BLUE_LED_PIN, LOW);
-	digitalWrite(RED_LED_PIN, HIGH);
-	switch (state) {
-	case NEUTRAL:
-		state = RED_CAPTURING;
-		statusHasChanged = true;
-		break;
-	case BLUE_CAPTURING:
-		state = RED_CAPTURING;
-		statusHasChanged = true;
-		break;
-	case BLUE_AWAITING_CONNFIRM:
-		state = RED_CAPTURING;
-		statusHasChanged = true;
-		break;
-	case BLUE_HAS_BASE:
-		state = RED_CAPTURING;
-		statusHasChanged = true;
-		break;
-	case RED_CAPTURING:
-		break;
-	case RED_AWAITING_CONNFIRM:
-		state = RED_HAS_BASE;
-		statusHasChanged = true;
-		break;
-	case RED_HAS_BASE:
-		break;
-	default:
-		state = NEUTRAL;
-		statusHasChanged = true;
+	static unsigned long lastInterruptTimeRed = 0;
+	unsigned long interruptTimeRed = millis();
+	if (interruptTimeRed - lastInterruptTimeRed > 200) {
+		digitalWrite(BLUE_LED_PIN, LOW);
+		switch (state) {
+		case NEUTRAL:
+			state = RED_CAPTURING;
+			digitalWrite(RED_LED_PIN, HIGH);
+			statusHasChanged = true;
+			break;
+		case BLUE_CAPTURING:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		case BLUE_AWAITING_CONNFIRM:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		case BLUE_HAS_BASE:
+			state = NEUTRAL;
+			resetState = true;
+			statusHasChanged = false;
+			break;
+		case RED_CAPTURING:
+			break;
+		case RED_AWAITING_CONNFIRM:
+			digitalWrite(RED_LED_PIN, HIGH);
+			state = RED_HAS_BASE;
+			statusHasChanged = true;
+			break;
+		case RED_HAS_BASE:
+			break;
+		default:
+			state = NEUTRAL;
+			statusHasChanged = false;
+		}
 	}
+	lastInterruptTimeRed = interruptTimeRed;
+	resetState ? statusHasChanged = false : statusHasChanged = statusHasChanged;
 }
+
+
