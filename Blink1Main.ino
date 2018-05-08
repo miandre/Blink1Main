@@ -3,7 +3,7 @@
 #include <Adafruit_FONA.h>
 #include <SoftwareSerial.h>
 
-#define ID 1
+#define ID 5
 #define APN "halebop.telia.se"
 
 #define BLUE "BLUE"
@@ -32,7 +32,8 @@ void reInitGPRS();
 void blueButtonISR();
 void redButtonISR();
 void checkResetState();
-void reportStatusToWartchdog();
+void reportStatusToWatchdog();
+void interpretResponse();
 boolean sendData(const String&);
 
 enum State {
@@ -84,6 +85,7 @@ void setup() {
 	Serial.begin(115200);
 	//Serial.println(F("Initializing....(May take 3 seconds)"));
 	initFONA();
+	setAlive(true);
 	loopTimer = millis();
 }
 
@@ -93,18 +95,19 @@ void loop() {
 	timer += millis() - loopTimer;
 	loopTimer = millis();
 
-	if (timer >= 120000 && !statusHasChanged) {
-		reportStatusToWartchdog();
+	if (timer >= 80000 && !statusHasChanged) {
+		reportStatusToWatchdog();
 	}
 	/*testValues
-	uint8_t MOD_VALUE = 15; 
+	uint8_t MOD_VALUE = 15;
 	int16_t capturingCountdown = 20;
-	*/
+	/*
 
 	/*realValues*/
 	int16_t capturingCountdown = 530;
 	uint8_t MOD_VALUE = 50;
 	
+
 	int16_t confirmTimeout = 120;
 	checkResetState();
 
@@ -200,7 +203,7 @@ void checkResetState() {
 	}
 }
 
-void reportStatusToWartchdog() {
+void reportStatusToWatchdog() {
 	checkResetState();
 	captureBlink(LED_BUILTIN);
 	if (state == NEUTRAL && !resetReported) {
@@ -212,6 +215,43 @@ void reportStatusToWartchdog() {
 	}
 	timer = 0;
 	loopTimer = millis();
+}
+
+void interpretResponse()
+{
+	String buffer(replybuffer);
+	if (buffer.startsWith(String('#'))) {
+		uint8_t teamEnd = buffer.indexOf('*');
+		uint8_t statusStart = teamEnd + 1;
+		String team = buffer.substring(1, teamEnd);
+		uint8_t status = buffer.substring(statusStart, statusStart + 1).toInt();
+
+		switch (status) {
+		case 1:
+			if (team.equals("BLUE")) {
+				state = BLUE_CAPTURING;
+			}
+			else if (team.equals("RED")) {
+				state = RED_CAPTURING;
+			}
+			else {
+				state = NEUTRAL;
+			}
+			break;
+		case 2:
+			if (team.equals("BLUE")) {
+				state = BLUE_HAS_BASE;
+			}
+			else if (team.equals("RED")) {
+				state = RED_HAS_BASE;
+			}
+			else {
+				state = NEUTRAL;
+			}
+			break;
+		}
+		memset(replybuffer, 0, sizeof(replybuffer));
+	}
 }
 
 void flushFONA() {
@@ -284,23 +324,19 @@ void reInitGPRS() {
 void setStatus(const String& team, uint8_t status) {
 	const String url = URL_BASE + "UpdateStatus.php?ID=" + ID + "&TEAM=" + team + "&STATUS=" + status;
 	trySendData(url, 5, true);
-	//Serial.println("loop ");
-	//replybuffer[10] = 'F';
-	//for (int j = 0; j < 11; j++) {
-	//	Serial.println(replybuffer[j]);
-	//}
 }
 
 void setAlive(boolean tryToReboot) {
 	const String url = URL_BASE + "watchDog.php?ID=" + ID;
 	trySendData(url, 2, tryToReboot);
+	interpretResponse();
 }
 
 void trySendData(const String& url, int8_t numberOfRetries, boolean tryToReboot) {
 	fona.enableGPRS(true);
 	delay(200);
 
-    int8_t reInitCounter = numberOfRetries;
+	int8_t reInitCounter = numberOfRetries;
 
 	while (!sendData(url)) {
 		captureBlink(LED_BUILTIN);
