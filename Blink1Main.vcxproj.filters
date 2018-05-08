@@ -29,6 +29,5 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Blink1Main.ino" />
-    <None Include="Blink1Main_RESET.ino" />
   </ItemGroup>
 </Project>

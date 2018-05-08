@@ -77,6 +77,5 @@ typedef void *__builtin_va_list;
 #define pgm_read_ptr(address_short)   short()
 
 #include "Blink1Main.ino"
-#include "Blink1Main_RESET.ino"
 #endif
 #endif

@@ -77,7 +77,6 @@
     <None Include="Blink1Main.ino">
       <FileType>CppCode</FileType>
     </None>
-    <None Include="Blink1Main_RESET.ino" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HeaderFiles\IOFunctions.h" />
