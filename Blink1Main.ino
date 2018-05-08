@@ -25,9 +25,9 @@
 #define STATUS_LED_3 13
 
 void initFONA();
-void trySendData(const String&, uint8_t, boolean);
+void trySendData(const String&, int8_t, boolean);
 void setStatus(const String&, uint8_t);
-void setAlive();
+void setAlive(boolean);
 void reInitGPRS();
 void blueButtonISR();
 void redButtonISR();
@@ -79,10 +79,10 @@ void setup() {
 	attachInterrupt(digitalPinToInterrupt(RED_BUTTON_PIN), redButtonISR, RISING);
 
 	//Use with USB serial connection only
-	while (!Serial);
+	//while (!Serial);
 
 	Serial.begin(115200);
-	Serial.println(F("Initializing....(May take 3 seconds)"));
+	//Serial.println(F("Initializing....(May take 3 seconds)"));
 	initFONA();
 	loopTimer = millis();
 }
@@ -93,12 +93,18 @@ void loop() {
 	timer += millis() - loopTimer;
 	loopTimer = millis();
 
-	if (timer >= 60000 && !statusHasChanged) {
+	if (timer >= 120000 && !statusHasChanged) {
 		reportStatusToWartchdog();
 	}
-
+	/*testValues
+	uint8_t MOD_VALUE = 15; 
 	int16_t capturingCountdown = 20;
-	//int16_t capturingCountdown = 550;
+	*/
+
+	/*realValues*/
+	int16_t capturingCountdown = 530;
+	uint8_t MOD_VALUE = 50;
+	
 	int16_t confirmTimeout = 120;
 	checkResetState();
 
@@ -118,12 +124,12 @@ void loop() {
 		while (capturingCountdown > 0 && state == BLUE_CAPTURING) {
 			capturePulse(BLUE_LED_PIN);
 			capturingCountdown--;
-			if (capturingCountdown % 10 == 0) {
+			if (capturingCountdown % MOD_VALUE == 0) {
 				digitalWrite(BLUE_LED_PIN, HIGH);
-				setAlive();
-				capturingCountdown--;
+				setAlive(false);
 			}
 		}
+		timer = 0;
 		if (!statusHasChanged) {
 			state = BLUE_AWAITING_CONNFIRM;
 		}
@@ -154,12 +160,12 @@ void loop() {
 		while (capturingCountdown > 0 && state == RED_CAPTURING) {
 			capturePulse(RED_LED_PIN);
 			capturingCountdown--;
-			if (capturingCountdown % 15 == 0) {
+			if (capturingCountdown % MOD_VALUE == 0) {
 				digitalWrite(RED_LED_PIN, HIGH);
-				setAlive();
-				capturingCountdown--;
+				setAlive(false);
 			}
 		}
+		timer = 0;
 		if (!statusHasChanged) {
 			state = RED_AWAITING_CONNFIRM;
 		}
@@ -202,7 +208,7 @@ void reportStatusToWartchdog() {
 		resetReported = true;
 	}
 	else {
-		setAlive();
+		setAlive(true);
 	}
 	timer = 0;
 	loopTimer = millis();
@@ -285,24 +291,24 @@ void setStatus(const String& team, uint8_t status) {
 	//}
 }
 
-void setAlive() {
+void setAlive(boolean tryToReboot) {
 	const String url = URL_BASE + "watchDog.php?ID=" + ID;
-	trySendData(url, 2, false);
+	trySendData(url, 2, tryToReboot);
 }
 
-void trySendData(const String& url, uint8_t numberOfRetries, boolean tryToReboot) {
+void trySendData(const String& url, int8_t numberOfRetries, boolean tryToReboot) {
 	fona.enableGPRS(true);
 	delay(200);
 
-	uint8_t reInitCounter = numberOfRetries;
+    int8_t reInitCounter = numberOfRetries;
 
 	while (!sendData(url)) {
 		captureBlink(LED_BUILTIN);
 		reInitGPRS();
-		if (--reInitCounter == 0 && tryToReboot) {
+		if (--reInitCounter <= 0 && tryToReboot) {
 			initFONA();
 			delay(1000);
-			reInitCounter = 5;
+			reInitCounter = numberOfRetries;
 		}
 		else { break; }
 	}
@@ -324,7 +330,7 @@ boolean sendData(const String& url) {
 	fona.flush();
 
 	if (!fona.HTTP_GET_start(urlToSend, &statuscode, reinterpret_cast<uint16_t *>(&length))) {
-		Serial.println("Failed! sendding");
+		//Serial.println("Failed! sendding");
 		fona.flush();
 		return false;
 	}
@@ -344,7 +350,7 @@ boolean sendData(const String& url) {
 			if (!length) break;
 		}
 	}
-	Serial.println(F("\n****"));
+	//Serial.println(F("\n****"));
 	fona.HTTP_GET_end();
 
 	fona.flush();
